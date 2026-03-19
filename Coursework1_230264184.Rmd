@@ -1,0 +1,193 @@
+---
+title: "MTH6139 Time Series" 
+subtitle: "Coursework 1 -- Forecasting Bitcoin With Meta Prophet" 
+author: "Aman Thakur" 
+date: "March 2026" 
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab 
+    highlight: tango
+---
+ 
+```{r, echo=FALSE}
+# This code will display the QMUL logo at the top right of the page
+# Do not change this code
+htmltools::img(src = knitr::image_uri("images/QMlogo.png"),
+               alt = 'logo',
+               style = 'position:absolute; top:0; right:0; padding:10px; width:20%;')
+```
+
+# Section 1: Introduction
+
+The aim of this project is to investigate whether Meta’s Prophet model can be used to effectively analyse and forecast the price of Bitcoin. Bitcoin is the largest and most well-known cryptocurrency, and its price has experienced large and many fluctuations since its creation. From the lecture notes, a time series is a collection of data sampled over time. Because Bitcoin prices are recorded daily and show strong changes over time, they form a useful example of a time series. Also, as Bitcoin is quite volatile and is a global interest to many it makes it an interesting and exciting topic to explore in this project..
+
+Forecasting cryptocurrency prices is challenging due to rapid market changes. So here, we will utilise time series models as they can identity undelying patterns. In this case, we will be analysing historical Bitcoin price data to see how the time series will evolve with time.
+
+Firstly, in this project I began by visualising the historical data in order to understand its main features. Then, a Prophet forecasting model is fitted to the dataset to generate predictions for future values. In addition, a log transformation of the series will be considered to examine whether it improves the stability of the model and the quality of the forecasts.So lets dive right in!
+
+## 1.1 Data Source and Preparation
+
+In order to analyse Bitcoin prices, I obtained historical market data using the quantmod package in R. This package essentially allows financial data to be downloaded directly from online sources such as Yahoo Finance.
+
+Additionally, I noticed that Meta’s Prophet model requires the dataset to be organised as a dataframe with two specific columns. The first column must contain the dates and be named ds, while the second column must contain the observed values and be named y. Hence, I reorganised the Bitcoin price data to match this.
+
+```{r}
+library(quantmod)  # Loads the quantmod package for financial data
+
+# Downloads the historical Bitcoin price data from Yahoo Finance
+invisible(getSymbols("BTC-USD", src = "yahoo", from = "2015-01-01"))
+
+# Converts the data into a dataframe suitable for Prophet
+bitcoin_data <- data.frame(
+  ds = as.Date(index(`BTC-USD`)),   # Extracts the date index and store as 'ds'
+  y = as.numeric(Cl(`BTC-USD`))     # Extracts the closing price and store as 'y'
+)
+
+# Display the first few rows of the dataset
+head(bitcoin_data)
+```
+
+## 1.2 Initial Exploration of the Bitcoin Time Series
+
+Before fitting any forecasting model, I think that it is very important to explore both the data visually and statistically. To help me with this we can use Exploratory Data Analysis (EDA). EDA allows us to understand both the behaviour and structure of the time series even better. Additionally, EDA allows us to identify long term trends, periods of high volatility etc.
+
+By critically analysing the bits above, we can gain an insight into how the data behaves over time. This understanding helped me guide how the forecasting model should be configured and how the results should be interpreted. So lets have a look!
+
+```{r}
+library(ggplot2)
+
+ggplot(bitcoin_data, aes(x = ds, y = y)) +
+  geom_line(color = "red") +
+  labs(
+    title = "Daily Bitcoin Price",
+    x = "Date",
+    y = "Bitcoin Price (USD)"
+  ) +
+  theme_minimal()
+```
+
+Looking at the graph above we can see that the time series is experiencing significant volatility as there are multiple increases and decreases in Bitcoin's price over relatively short periods of time.Furthermore, if we have a look at the general trend of the graph, we can see that there is an overall upward trend, but this comes with several sharp declines and rapid increases. Mirroring, the unpredictable nature of the cryptocurrency market, which makes it an incredibly interesting dataset to analyse and forecast using Meta's Prophet model.
+
+## 1.3 Smoothing the Bitcoin Price Series
+
+Because financial time series often contain large short-term fluctuations, it can sometimes be quite difficult to clearly observe the overall direction of the data (as discussed previously above). One common technique used to reduce this noise is a moving average, which we will have a look at.
+
+In this section, a 50-day moving average is calculated for the Bitcoin price series (A 50 day moving average was taken by choice, but can choose any number). To summarise, this method essentially smooths out the short-term volatility by averaging the previous 50 observations, making the underlying trend of the series easier to visualise and interpret. So lets test this in action!
+
+```{r message=FALSE, warning=FALSE}
+options(xts.warn_dplyr_breaks_lag = FALSE)
+library(dplyr)
+
+# Calculates a 50-day moving average for Bitcoin prices
+bitcoin_data <- bitcoin_data %>%
+  mutate(moving_average_50 = zoo::rollmean(y, k = 50, fill = NA, align = "right"))
+
+# Plot the original Bitcoin price series together with the moving average
+ggplot(bitcoin_data, aes(x = ds)) +
+  geom_line(aes(y = y), color = "red", alpha = 0.5) +
+  geom_line(aes(y = moving_average_50)) +
+  labs(
+    title = "Bitcoin Price with 50-Day Moving Average",
+    x = "Date",
+    y = "Bitcoin Price (USD)"
+  ) +
+  theme_minimal()
+# Display summary statistics for the Bitcoin price series
+summary(bitcoin_data$y)
+```
+  
+## 1.4 Applying a Log Transformation to the Bitcoin Series
+
+So we know that Bitcoin experiences significant variability over time, which we also touched on previously. This essentially means that we tend to have large fluctuations when the price is higher, making it much more difficult for forecasting models to identify the underlying trend of the time series.
+
+To rectify this issue we can apply a logarithmic transformation to the data, which will result in the variability of the data becoming more stable over time.Stabilising the variance in this way can make the time series easier to analyse and may improve the performance of forecasting models such as Prophet. So lets have a look!
+ 
+
+```{r}
+# Creates a new column with the log transformation Bitcoin price
+bitcoin_data$log_price <- log(bitcoin_data$y)
+
+# Plots the log transformation Bitcoin series
+ggplot(bitcoin_data, aes(x = ds, y = log_price)) +
+  geom_line(color = "red") +
+  labs(
+    title = "Log Transformation Bitcoin Price",
+    x = "Date",
+    y = "Log Bitcoin Price"
+  ) +
+  theme_minimal()
+```
+
+Analysing the graph above, we can see that the log transformation of the Bitcoin Price series is much more smoother compared to the original series (which was expected). Also, areas which had large spikes and fluctuation have been compressed, reducing volatility which makes it easier to observe the overall trend. Contrary to this, we still do have short-term fluctuations, but we know that the log transformation stabilises the variance across the entire time series, allowing patterns to be seen more clearly which makes the series better for modelling and forecasting with Meta's Prophet model.
+
+# Section 2: Forecasting Bitcoin Prices Using Meta Prophet
+
+Meta Prophet is a time series forecasting tool developed by Meta that is widely used for analysing and predicting time series data. The model is particularly useful for datasets that display strong trends and potential seasonal patterns.
+
+Here we will have a look at Meta's Prophet model which will be applied to Bitcoins price data in order to generate forecasts for future values.
+
+## 2.1 Fitting the Prophet Model
+
+```{r}
+library(prophet)
+
+# Prepares the Bitcoin dataset for Prophet (only ds and y are required)
+bitcoin_prophet_data <- bitcoin_data[, c("ds", "y")]
+
+# Fits the Prophet forecasting model
+bitcoin_prophet_model <- prophet(bitcoin_prophet_data)
+
+# Creates future dates for forecasting (180 days ahead)
+future_bitcoin_dates <- make_future_dataframe(bitcoin_prophet_model, periods = 180)
+
+# Generates the forecast
+bitcoin_forecast <- predict(bitcoin_prophet_model, future_bitcoin_dates)
+
+# Plots the forecast results
+plot(bitcoin_prophet_model, bitcoin_forecast)
+```
+
+The forecast plot above shows how Bitcoin prices are expected to move in the future based on past  historical data. Here, the dark line shows the Prophet model's predicted/forecasted values, and the shaded area around the line shows the uncertainty interval. This range shows where Bitcoin prices are likely to lie in the future. Highlighting, how uncertain it is to try to guess highly volatile financial data.Lets also look further at the components which make up the prophet model.
+
+```{r}
+# Displays the individual components of the Prophet model
+prophet_plot_components(bitcoin_prophet_model, bitcoin_forecast)
+```
+
+The components plot shows how the Prophet model separates the Bitcoin forecast into different elements. In particular, it highlights the long-term trend of the series and any repeating patterns.
+
+## 2.2 Prophet Forecast with Log Transformation
+
+Now let's see how the Prophet model works with the log-transformed Bitcoin data!
+
+```{r}
+# Create a dataset using the log-transformed Bitcoin prices
+bitcoin_log_prophet_data <- data.frame(
+  ds = bitcoin_data$ds,
+  y = log(bitcoin_data$y)
+)
+
+# Fits the Prophet model to the log-transformed series
+bitcoin_log_model <- prophet(bitcoin_log_prophet_data)
+
+# Generates future dates for forecasting
+bitcoin_log_future_dates <- make_future_dataframe(bitcoin_log_model, periods = 180)
+
+# Produces the forecast
+bitcoin_log_forecast <- predict(bitcoin_log_model, bitcoin_log_future_dates)
+
+# Plots the forecast
+plot(bitcoin_log_model, bitcoin_log_forecast)
+```
+
+The Prophet model used the log-transformed Bitcoin data to make the prediction shown in the graph above. The time series looks smoother than the forecast based on the raw prices as the log transformation makes large spikes in the data less impactful. The model still shows that Bitcoin prices are generally going up, and it predicts that this pattern will continue in the future. Furthermore, the shaded area around the forecast shows how uncertain the predictions are.
+
+# Section 3: Final Thoughts and Key Insights
+
+To summarise, in this project I looked at Bitcoins Price data where I applied time series analysis and  forecasting using Meta's Prophet model. Firstly, graphs and a 50-day moving average allowed me to detect any trends, whilst a logarithmic transformation flattened out extreme spikes and stabilised the series.
+
+On the note of Meta's Prophet model, we used this to create forecasts picturing the general trend of the series, whilst also providing uncertainty estimates. Furthermore, I then broke down Meta's Prophet model into it's components, showing the factors which influenced the predicted values.
+
+Overall, after completing this project I think it is safe to say that Meta's Prophet model is an extremely useful tool for forecasting volatile financial data.
